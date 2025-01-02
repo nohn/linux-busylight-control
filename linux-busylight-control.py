@@ -53,6 +53,11 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
                 traffic_stats[dst_ip]["recv"] += len(packet)
                 logging.debug(f"Packet to {dst_ip} added to recv stats.")
 
+    def restart_monitoring():
+        """Restart the monitoring process, including rescanning interfaces."""
+        logging.warning("Restarting monitoring due to network error...")
+        monitor_traffic(allowlist, interval, high_url, low_url, threshold)
+
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
     start_time = time.time()
 
@@ -93,6 +98,7 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
         logging.info("Monitoring stopped by user.")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
+        restart_monitoring()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Monitor network traffic with CIDR filtering and alerting.")
