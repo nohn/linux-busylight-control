@@ -6,7 +6,7 @@ import argparse
 import logging
 from collections import defaultdict
 
-def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, threshold=0.5):
+def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, threshold=0.5, consecutive=2):
     """
     Monitor traffic on all network interfaces and apply CIDR allowlist filtering.
 
@@ -15,13 +15,14 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
     :param high_url: URL to call when data rate exceeds the threshold.
     :param low_url: URL to call when data rate falls below the threshold.
     :param threshold: Data rate threshold in Mbit/s.
+    :param consecutive: Number of consecutive measurements to confirm before firing an event.
     """
     if allowlist is None:
         allowlist = []
 
     logging.debug(f"Allowlist: {allowlist}")
     logging.debug(f"Monitoring interval: {interval} seconds")
-    logging.debug(f"High URL: {high_url}, Low URL: {low_url}, Threshold: {threshold} Mbit/s")
+    logging.debug(f"High URL: {high_url}, Low URL: {low_url}, Threshold: {threshold} Mbit/s, Consecutive: {consecutive}")
 
     # Convert CIDRs to ipaddress objects for faster checks
     allowed_networks = [ipaddress.ip_network(cidr) for cidr in allowlist]
@@ -56,13 +57,15 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
     def restart_monitoring():
         """Restart the monitoring process, including rescanning interfaces."""
         logging.warning("Restarting monitoring due to network error...")
-        monitor_traffic(allowlist, interval, high_url, low_url, threshold)
+        monitor_traffic(allowlist, interval, high_url, low_url, threshold, consecutive)
 
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
     start_time = time.time()
 
-    # State to track whether the data rate alert has been triggered
-    data_rate_above = False
+    # State to track consecutive measurements and event triggers
+    high_count = 0
+    low_count = 0
+    last_state = None  # Track the last state ("high", "low", or None)
 
     try:
         logging.info("Starting network traffic monitoring...")
@@ -76,19 +79,25 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
             total_sent_mbps = (total_sent * 8) / (interval * 1_000_000)
             total_recv_mbps = (total_recv * 8) / (interval * 1_000_000)
 
-            logging.info(f"[TOTAL] Sent: {total_sent_mbps:.2f} Mbit/s | Received: {total_recv_mbps:.2f} Mbit/s")
-
             # Check data rate thresholds and call URLs accordingly
             if total_sent_mbps > threshold or total_recv_mbps > threshold:
-                if not data_rate_above and high_url:
-                    requests.get(high_url)
-                    logging.info(f"High data rate detected (> {threshold} Mbit/s). Called high-data-rate URL.")
-                    data_rate_above = True
+                high_count += 1
+                low_count = 0
+                if high_count >= consecutive and last_state != "high":
+                    if high_url:
+                        requests.get(high_url)
+                        logging.info(f"High data rate detected (> {threshold} Mbit/s) for {consecutive} consecutive measurements. Called high-data-rate URL.")
+                    last_state = "high"
             else:
-                if data_rate_above and low_url:
-                    requests.get(low_url)
-                    logging.info(f"Data rate dropped (<= {threshold} Mbit/s). Called low-data-rate URL.")
-                    data_rate_above = False
+                low_count += 1
+                high_count = 0
+                if low_count >= consecutive and last_state != "low":
+                    if low_url:
+                        requests.get(low_url)
+                        logging.info(f"Data rate dropped (<= {threshold} Mbit/s) for {consecutive} consecutive measurements. Called low-data-rate URL.")
+                    last_state = "low"
+
+            logging.info(f"[TOTAL] Sent: {total_sent_mbps:.2f} Mbit/s | Received: {total_recv_mbps:.2f} Mbit/s | State: {last_state} | High: {high_count} | Low: {low_count}")
 
             # Reset stats and timer
             traffic_stats.clear()
@@ -103,11 +112,12 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Monitor network traffic with CIDR filtering and alerting.")
     parser.add_argument("--allowlist", nargs="*", default=["52.112.0.0/14", "52.122.0.0/15", "2603:1063::/38", "74.125.250.0/24", "2001:4860:4864:5::0/64", "142.250.82.0/24", "2001:4860:4864:6::/64"],
-                        help="List of allowed CIDR ranges.")
+                        help="List of allowed CIDR ranges. Defaults to MS Teams & Google Meet IP ranges.")
     parser.add_argument("--interval", type=int, default=10, help="Monitoring interval in seconds.")
     parser.add_argument("--high-url", type=str, required=True, help="URL to call when data rate exceeds threshold.")
     parser.add_argument("--low-url", type=str, required=True, help="URL to call when data rate falls below threshold.")
     parser.add_argument("--threshold", type=float, default=0.5, help="Data rate threshold in Mbit/s.")
+    parser.add_argument("--consecutive", type=int, default=2, help="Number of consecutive measurements to confirm before firing an event.")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                         help="Set the logging level.")
 
@@ -116,4 +126,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=getattr(logging, args.log_level.upper()),
                         format="%(asctime)s - %(levelname)s - %(message)s")
 
-    monitor_traffic(allowlist=args.allowlist, interval=args.interval, high_url=args.high_url, low_url=args.low_url, threshold=args.threshold)
+    monitor_traffic(allowlist=args.allowlist, interval=args.interval, high_url=args.high_url, low_url=args.low_url, threshold=args.threshold, consecutive=args.consecutive)
