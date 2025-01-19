@@ -57,6 +57,7 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
     def restart_monitoring():
         """Restart the monitoring process, including rescanning interfaces."""
         logging.warning("Restarting monitoring due to network error...")
+        time.sleep(10)
         monitor_traffic(allowlist, interval, high_url, low_url, threshold, consecutive)
 
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
