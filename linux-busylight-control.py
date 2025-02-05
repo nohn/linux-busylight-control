@@ -4,7 +4,16 @@ import time
 import requests
 import argparse
 import logging
+import psutil
 from collections import defaultdict
+
+def get_network_interfaces():
+    """Retrieve the current list of network interfaces and their IP addresses."""
+    interfaces = {}
+    for iface, addrs in psutil.net_if_addrs().items():
+        ip_list = [addr.address for addr in addrs if addr.family in {2, 10}]  # IPv4 and IPv6
+        interfaces[iface] = ip_list
+    return interfaces
 
 def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, threshold=0.5, consecutive=2):
     """
@@ -79,10 +88,17 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
     high_count = 0
     low_count = 0
     last_state = None  # Track the last state ("high", "low", or None)
+    previous_interfaces = get_network_interfaces()
+    logging.info(f"Interfaces: {previous_interfaces}")
 
     try:
         logging.info("Starting network traffic monitoring...")
         while True:
+            current_interfaces = get_network_interfaces()
+            if current_interfaces != previous_interfaces:
+                logging.warning("Network interfaces changed. Restarting monitoring...")
+                return monitor_traffic(allowlist, interval, high_url, low_url, threshold, consecutive)
+
             scapy.sniff(prn=packet_handler, store=False, timeout=interval)
 
             # Aggregate and display traffic stats
@@ -123,10 +139,17 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
         restart_monitoring(allowlist, interval, high_url, low_url, threshold, consecutive)
 
 if __name__ == "__main__":
-
-
     parser = argparse.ArgumentParser(description="Monitor network traffic with CIDR filtering and alerting.")
-    parser.add_argument("--allowlist", nargs="*", default=["52.112.0.0/14", "52.122.0.0/15", "2603:1063::/38", "74.125.250.0/24", "2001:4860:4864:5::0/64", "142.250.82.0/24", "2001:4860:4864:6::/64"],
+    parser.add_argument("--allowlist", nargs="*", default=[
+        "52.112.0.0/14",          # MS Teams
+        "52.122.0.0/15",          # MS Teams
+        "2603:1063::/38",         # MS Teams
+        "13.107.253.0/24",        # MS Convene
+        "74.125.250.0/24",        # Google Meet (Workspace)
+        "2001:4860:4864:5::0/64", # Google Meet (Workspace)
+        "142.250.82.0/24",        # Google Meet (Consumer)
+        "2001:4860:4864:6::/64"   # Google Meet (Consumer)
+    ],
                         help="List of allowed CIDR ranges. Defaults to MS Teams & Google Meet IP ranges.")
     parser.add_argument("--interval", type=int, default=10, help="Monitoring interval in seconds.")
     parser.add_argument("--high-url", type=str, required=True, help="URL to call when data rate exceeds threshold.")
