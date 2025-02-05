@@ -50,19 +50,24 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
 
     def packet_handler(packet):
         """Handle each packet to aggregate traffic statistics."""
-        nonlocal traffic_stats
+        nonlocal traffic_stats, non_allowlist_traffic
         if packet.haslayer(scapy.IP):
             ip_layer = packet[scapy.IP]
             src_ip = ip_layer.src
             dst_ip = ip_layer.dst
+            packet_size = len(packet)
 
             # Check if source or destination IP matches the allowlist
             if is_allowed(src_ip):
-                traffic_stats[src_ip]["sent"] += len(packet)
+                traffic_stats[src_ip]["sent"] += packet_size
                 logging.debug(f"Packet from {src_ip} added to sent stats.")
+            else:
+                non_allowlist_traffic[dst_ip] += packet_size
             if is_allowed(dst_ip):
-                traffic_stats[dst_ip]["recv"] += len(packet)
+                traffic_stats[dst_ip]["recv"] += packet_size
                 logging.debug(f"Packet to {dst_ip} added to recv stats.")
+            else:
+                non_allowlist_traffic[dst_ip] += packet_size
 
     def restart_monitoring(allowlist, interval, high_url, low_url, threshold, consecutive, max_retries=5):
         """Restart the monitoring process, including rescanning interfaces."""
@@ -82,6 +87,7 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
             raise SystemExit("Monitoring process terminated after repeated failures.")
 
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
+    non_allowlist_traffic = defaultdict(int)  # Track traffic from IPs not in allowlist
     start_time = time.time()
 
     # State to track consecutive measurements and event triggers
@@ -126,10 +132,16 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
                         logging.info(f"Data rate dropped (<= {threshold} Mbit/s) for {consecutive} consecutive measurements. Called low-data-rate URL.")
                     last_state = "low"
 
-            logging.info(f"[TOTAL] Sent: {total_sent_mbps:.2f} Mbit/s | Received: {total_recv_mbps:.2f} Mbit/s | State: {last_state} | High: {high_count} | Low: {low_count}")
+            # Identify the highest traffic IP not in allowlist
+            if non_allowlist_traffic:
+                highest_ip = max(non_allowlist_traffic, key=non_allowlist_traffic.get)
+                highest_traffic = non_allowlist_traffic[highest_ip] * 8 / (interval * 1_000_000)
+
+            logging.info(f"[TOTAL] Sent: {total_sent_mbps:.2f} Mbit/s | Received: {total_recv_mbps:.2f} Mbit/s | State: {last_state} | High: {high_count} | Low: {low_count} | Highest traffic IP NOT in allowlist: {highest_ip} with {highest_traffic:.2f} Mbit/s")
 
             # Reset stats and timer
             traffic_stats.clear()
+            non_allowlist_traffic.clear()
             start_time = time.time()
 
     except KeyboardInterrupt:
