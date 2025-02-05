@@ -161,7 +161,9 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
                 for ip, traffic in non_allowlist_traffic.items()
                 if ip not in local_interface_ips and not is_in_ignored_network(ip, ignored_networks)
             }
-            if non_allowlist_traffic_filtered:  # Check the filtered dictionary
+            highest_ip = None
+            highest_traffic = 0.0
+            if non_allowlist_traffic_filtered:  # Ensure the dictionary is not empty
                 highest_ip = max(non_allowlist_traffic_filtered, key=non_allowlist_traffic_filtered.get)
                 highest_traffic = non_allowlist_traffic_filtered[highest_ip] * 8 / (interval * 1_000_000)
 
@@ -175,7 +177,7 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
     except KeyboardInterrupt:
         logging.info("Monitoring stopped by user.")
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+        logging.error(f"An unexpected error occurred: {e}", exc_info=True)
         restart_monitoring(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive)
 
 if __name__ == "__main__":
