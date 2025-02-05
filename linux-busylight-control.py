@@ -26,6 +26,7 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
 
     # Convert CIDRs to ipaddress objects for faster checks
     allowed_networks = [ipaddress.ip_network(cidr) for cidr in allowlist]
+    print(allowed_networks)
 
     def is_allowed(ip):
         """Check if an IP is within the allowlist."""
@@ -54,11 +55,22 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
                 traffic_stats[dst_ip]["recv"] += len(packet)
                 logging.debug(f"Packet to {dst_ip} added to recv stats.")
 
-    def restart_monitoring():
+    def restart_monitoring(allowlist, interval, high_url, low_url, threshold, consecutive, max_retries=5):
         """Restart the monitoring process, including rescanning interfaces."""
-        logging.warning("Restarting monitoring due to network error...")
-        time.sleep(10)
-        monitor_traffic(allowlist, interval, high_url, low_url, threshold, consecutive)
+        retries = 0
+        while retries < max_retries:
+            try:
+                logging.warning("Restarting monitoring due to network error... (Attempt %d)", retries + 1)
+                monitor_traffic(allowlist, interval, high_url, low_url, threshold, consecutive)
+                break  # Exit if monitoring succeeds
+            except Exception as e:
+                retries += 1
+                logging.error(f"Monitoring restart failed: {e}")
+                time.sleep(5)  # Wait before retrying
+
+        if retries >= max_retries:
+            logging.critical("Maximum retries reached. Exiting monitoring.")
+            raise SystemExit("Monitoring process terminated after repeated failures.")
 
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
     start_time = time.time()
@@ -108,9 +120,11 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
         logging.info("Monitoring stopped by user.")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
-        restart_monitoring()
+        restart_monitoring(allowlist, interval, high_url, low_url, threshold, consecutive)
 
 if __name__ == "__main__":
+
+
     parser = argparse.ArgumentParser(description="Monitor network traffic with CIDR filtering and alerting.")
     parser.add_argument("--allowlist", nargs="*", default=["52.112.0.0/14", "52.122.0.0/15", "2603:1063::/38", "74.125.250.0/24", "2001:4860:4864:5::0/64", "142.250.82.0/24", "2001:4860:4864:6::/64"],
                         help="List of allowed CIDR ranges. Defaults to MS Teams & Google Meet IP ranges.")
