@@ -69,6 +69,15 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
             else:
                 non_allowlist_traffic[dst_ip] += packet_size
 
+    def get_local_interface_ips():
+        """Get the IP addresses of the local network interfaces."""
+        local_ips = set()  # Use a set for efficient lookups
+        for iface, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family in {2, 10}:  # IPv4 and IPv6
+                    local_ips.add(addr.address)
+        return local_ips
+
     def restart_monitoring(allowlist, interval, high_url, low_url, threshold, consecutive, max_retries=5):
         """Restart the monitoring process, including rescanning interfaces."""
         retries = 0
@@ -132,10 +141,16 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
                         logging.info(f"Data rate dropped (<= {threshold} Mbit/s) for {consecutive} consecutive measurements. Called low-data-rate URL.")
                     last_state = "low"
 
-            # Identify the highest traffic IP not in allowlist
-            if non_allowlist_traffic:
-                highest_ip = max(non_allowlist_traffic, key=non_allowlist_traffic.get)
-                highest_traffic = non_allowlist_traffic[highest_ip] * 8 / (interval * 1_000_000)
+            # Identify the highest traffic IP not in allowlist, EXCLUDING local interface IPs
+            local_interface_ips = get_local_interface_ips()
+            non_allowlist_traffic_filtered = {
+                ip: traffic
+                for ip, traffic in non_allowlist_traffic.items()
+                if ip not in local_interface_ips  # Direct IP comparison
+            }
+            if non_allowlist_traffic_filtered:  # Check the filtered dictionary
+                highest_ip = max(non_allowlist_traffic_filtered, key=non_allowlist_traffic_filtered.get)
+                highest_traffic = non_allowlist_traffic_filtered[highest_ip] * 8 / (interval * 1_000_000)
 
             logging.info(f"[TOTAL] Sent: {total_sent_mbps:.2f} Mbit/s | Received: {total_recv_mbps:.2f} Mbit/s | State: {last_state} | High: {high_count} | Low: {low_count} | Highest traffic IP NOT in allowlist: {highest_ip} with {highest_traffic:.2f} Mbit/s")
 
