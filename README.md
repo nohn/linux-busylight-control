@@ -11,6 +11,16 @@ Preconfigured to monitor MS Teams and Google Meet IP ranges.
 
 ## Usage
 
+### Configuring linux-busylight-control.py
+
+Defaults to watching for MS Teams, MS Convene and Google Meet traffic. You may specify other ip ranges using the allowlist parameter like this:
+
+    --allowlist "192.168.100.0/24" "10.0.0.0/24"
+
+Likewise you can ignore IP ranges (defaults to no IP ranges ignore):
+
+    --ignorelist "224.0.0.0/24"
+
 I'm using https://pypi.org/project/busylight-for-humans/ to drive my Busylight using https://busylight/api/light/0/on?color=red and https://busylight/api/light/0/on?color=green
 
 That data is imported in Home Assistant using busyserve's REST API

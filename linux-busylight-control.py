@@ -15,7 +15,7 @@ def get_network_interfaces():
         interfaces[iface] = ip_list
     return interfaces
 
-def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, threshold=0.5, consecutive=2):
+def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None, low_url=None, threshold=0.5, consecutive=2):
     """
     Monitor traffic on all network interfaces and apply CIDR allowlist filtering.
 
@@ -30,12 +30,13 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
         allowlist = []
 
     logging.debug(f"Allowlist: {allowlist}")
+    logging.debug(f"Ignorelist: {ignorelist}")
     logging.debug(f"Monitoring interval: {interval} seconds")
     logging.debug(f"High URL: {high_url}, Low URL: {low_url}, Threshold: {threshold} Mbit/s, Consecutive: {consecutive}")
 
     # Convert CIDRs to ipaddress objects for faster checks
     allowed_networks = [ipaddress.ip_network(cidr) for cidr in allowlist]
-    print(allowed_networks)
+    ignored_networks = [ipaddress.ip_network(cidr) for cidr in ignorelist] if ignorelist else []
 
     def is_allowed(ip):
         """Check if an IP is within the allowlist."""
@@ -50,24 +51,26 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
 
     def packet_handler(packet):
         """Handle each packet to aggregate traffic statistics."""
-        nonlocal traffic_stats, non_allowlist_traffic
+        nonlocal traffic_stats, non_allowlist_traffic, local_interface_ips
         if packet.haslayer(scapy.IP):
             ip_layer = packet[scapy.IP]
             src_ip = ip_layer.src
             dst_ip = ip_layer.dst
             packet_size = len(packet)
 
-            # Check if source or destination IP matches the allowlist
-            if is_allowed(src_ip):
-                traffic_stats[src_ip]["sent"] += packet_size
-                logging.debug(f"Packet from {src_ip} added to sent stats.")
-            else:
-                non_allowlist_traffic[dst_ip] += packet_size
-            if is_allowed(dst_ip):
-                traffic_stats[dst_ip]["recv"] += packet_size
-                logging.debug(f"Packet to {dst_ip} added to recv stats.")
-            else:
-                non_allowlist_traffic[dst_ip] += packet_size
+            # Check traffic involving LOCAL interfaces (sent OR received)
+            if src_ip in local_interface_ips:  # Traffic SENT by local interface
+                if is_allowed(dst_ip):  # Destination is allowed
+                    traffic_stats[dst_ip]["recv"] += packet_size  # Count as received by destination (even if sent by us)
+                else:
+                    non_allowlist_traffic[dst_ip] += packet_size
+            elif dst_ip in local_interface_ips:  # Traffic RECEIVED by local interface
+                if is_allowed(src_ip):  # Source is allowed
+                    traffic_stats[src_ip]["sent"] += packet_size  # Count as sent by source (even if received by us)
+                else:
+                    non_allowlist_traffic[src_ip] += packet_size
+            else: # Traffic between non-local interfaces (not relevant for our monitoring)
+                logging.debug(f"Traffic between non-local interfaces received! {src_ip} -> {dst_ip}")
 
     def get_local_interface_ips():
         """Get the IP addresses of the local network interfaces."""
@@ -78,13 +81,22 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
                     local_ips.add(addr.address)
         return local_ips
 
-    def restart_monitoring(allowlist, interval, high_url, low_url, threshold, consecutive, max_retries=5):
+    def is_in_ignored_network(ip, ignored_networks):
+        """Check if an IP is within the ignored subnets."""
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+            return any(ip_obj in network for network in ignored_networks)
+        except ValueError:
+            logging.error(f"Invalid IP address: {ip}")
+            return False
+
+    def restart_monitoring(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive, max_retries=5):
         """Restart the monitoring process, including rescanning interfaces."""
         retries = 0
         while retries < max_retries:
             try:
                 logging.warning("Restarting monitoring due to network error... (Attempt %d)", retries + 1)
-                monitor_traffic(allowlist, interval, high_url, low_url, threshold, consecutive)
+                monitor_traffic(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive)
                 break  # Exit if monitoring succeeds
             except Exception as e:
                 retries += 1
@@ -95,6 +107,8 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
             logging.critical("Maximum retries reached. Exiting monitoring.")
             raise SystemExit("Monitoring process terminated after repeated failures.")
 
+    local_interface_ips = get_local_interface_ips()
+
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
     non_allowlist_traffic = defaultdict(int)  # Track traffic from IPs not in allowlist
     start_time = time.time()
@@ -104,7 +118,7 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
     low_count = 0
     last_state = None  # Track the last state ("high", "low", or None)
     previous_interfaces = get_network_interfaces()
-    logging.info(f"Interfaces: {previous_interfaces}")
+    logging.debug(f"Interfaces: {previous_interfaces}")
 
     try:
         logging.info("Starting network traffic monitoring...")
@@ -142,11 +156,10 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
                     last_state = "low"
 
             # Identify the highest traffic IP not in allowlist, EXCLUDING local interface IPs
-            local_interface_ips = get_local_interface_ips()
             non_allowlist_traffic_filtered = {
                 ip: traffic
                 for ip, traffic in non_allowlist_traffic.items()
-                if ip not in local_interface_ips  # Direct IP comparison
+                if ip not in local_interface_ips and not is_in_ignored_network(ip, ignored_networks)
             }
             if non_allowlist_traffic_filtered:  # Check the filtered dictionary
                 highest_ip = max(non_allowlist_traffic_filtered, key=non_allowlist_traffic_filtered.get)
@@ -163,7 +176,7 @@ def monitor_traffic(allowlist=None, interval=10, high_url=None, low_url=None, th
         logging.info("Monitoring stopped by user.")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}")
-        restart_monitoring(allowlist, interval, high_url, low_url, threshold, consecutive)
+        restart_monitoring(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Monitor network traffic with CIDR filtering and alerting.")
@@ -178,6 +191,7 @@ if __name__ == "__main__":
         "2001:4860:4864:6::/64"   # Google Meet (Consumer)
     ],
                         help="List of allowed CIDR ranges. Defaults to MS Teams & Google Meet IP ranges.")
+    parser.add_argument("--ignorelist", nargs="*", default=[], help="List of CIDR ranges to ignore when reporting highest non-allowlist IP.")
     parser.add_argument("--interval", type=int, default=10, help="Monitoring interval in seconds.")
     parser.add_argument("--high-url", type=str, required=True, help="URL to call when data rate exceeds threshold.")
     parser.add_argument("--low-url", type=str, required=True, help="URL to call when data rate falls below threshold.")
@@ -191,4 +205,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=getattr(logging, args.log_level.upper()),
                         format="%(asctime)s - %(levelname)s - %(message)s")
 
-    monitor_traffic(allowlist=args.allowlist, interval=args.interval, high_url=args.high_url, low_url=args.low_url, threshold=args.threshold, consecutive=args.consecutive)
+    monitor_traffic(allowlist=args.allowlist, ignorelist=args.ignorelist, interval=args.interval, high_url=args.high_url, low_url=args.low_url, threshold=args.threshold, consecutive=args.consecutive)
