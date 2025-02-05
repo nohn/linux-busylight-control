@@ -95,12 +95,12 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
         retries = 0
         while retries < max_retries:
             try:
-                logging.warning("Restarting monitoring due to network error... (Attempt %d)", retries + 1)
+                logging.warning(f"Restarting monitoring due to network error... (Attempt {retries + 1})")
                 monitor_traffic(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive)
                 break  # Exit if monitoring succeeds
             except Exception as e:
                 retries += 1
-                logging.error(f"Monitoring restart failed: {e}")
+                logging.error(f"Monitoring restart attempt {retries} failed: {e}", exc_info=True)
                 time.sleep(5)  # Wait before retrying
 
         if retries >= max_retries:
