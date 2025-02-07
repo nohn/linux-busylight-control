@@ -12,7 +12,8 @@ def get_network_interfaces():
     interfaces = {}
     for iface, addrs in psutil.net_if_addrs().items():
         ip_list = [addr.address for addr in addrs if addr.family in {2, 10}]  # IPv4 and IPv6
-        interfaces[iface] = ip_list
+        if ip_list: # Only add interface if it has assigned IP addresses
+            interfaces[iface] = ip_list
     return interfaces
 
 def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None, low_url=None, threshold=0.5, consecutive=2):
@@ -52,7 +53,7 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
     def packet_handler(packet):
         """Handle each packet to aggregate traffic statistics."""
         nonlocal traffic_stats, non_allowlist_traffic, local_interface_ips
-        if packet.haslayer(scapy.IP):
+        if scapy.IP in packet:
             ip_layer = packet[scapy.IP]
             src_ip = ip_layer.src
             dst_ip = ip_layer.dst
