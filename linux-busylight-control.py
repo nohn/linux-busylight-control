@@ -167,7 +167,7 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
                 highest_ip = max(non_allowlist_traffic_filtered, key=non_allowlist_traffic_filtered.get)
                 highest_traffic = non_allowlist_traffic_filtered[highest_ip] * 8 / (interval * 1_000_000)
 
-            logging.info(f"[TOTAL] Sent: {total_sent_mbps:.2f} Mbit/s | Received: {total_recv_mbps:.2f} Mbit/s | State: {last_state} | High: {high_count} | Low: {low_count} | Highest traffic IP NOT in allowlist: {highest_ip} with {highest_traffic:.2f} Mbit/s")
+            logging.info(f"[AllowList]: {last_state} | H: {high_count} | L: {low_count} | S: {total_sent_mbps:.2f} Mbit/s | R: {total_recv_mbps:.2f} Mbit/s | [!AllowList]: {highest_ip} @ {highest_traffic:.2f} Mbit/s")
 
             # Reset stats and timer
             traffic_stats.clear()
