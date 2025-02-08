@@ -7,7 +7,7 @@ Preconfigured to monitor MS Teams and Google Meet IP ranges.
 ## Prerequisites
 
 * Python > 3.12 (very likely to work with lower version, but I haven't tested that)
-* ```pip install scapy requests ipaddress argparse logging psutil```
+* ```pip install -r requirements.txt```
 
 ## Usage
 

@@ -1,11 +1,13 @@
-import ipaddress
-import time
 import argparse
+import ipaddress
 import logging
+import time
 from collections import defaultdict
-import scapy.all as scapy
-import requests
+
 import psutil
+import requests
+import scapy.all as scapy
+
 
 def get_network_interfaces():
     """Retrieve the current list of network interfaces and their IP addresses."""
