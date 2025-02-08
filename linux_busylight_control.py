@@ -78,7 +78,7 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
     def get_local_interface_ips():
         """Get the IP addresses of the local network interfaces."""
         local_ips = set()  # Use a set for efficient lookups
-        for iface, addrs in psutil.net_if_addrs().items():
+        for addrs in psutil.net_if_addrs().values():
             for addr in addrs:
                 if addr.family in {2, 10}:  # IPv4 and IPv6
                     local_ips.add(addr.address)
