@@ -13,6 +13,7 @@ import scapy.all as scapy
 from scapy.layers.inet import IP
 from scapy.layers.inet6 import IPv6
 
+retries = 0
 
 def get_network_interfaces():
     """Retrieve the current list of network interfaces and their IP addresses."""
@@ -109,7 +110,6 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
 
     def restart_monitoring(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive, max_retries=5):
         """Restart the monitoring process, including rescanning interfaces."""
-        retries = 0
         while retries < max_retries:
             try:
                 logging.warning(f"Restarting monitoring due to network error... (Attempt {retries + 1})")
@@ -124,8 +124,6 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
             logging.critical("Maximum retries reached. Exiting monitoring.")
             raise SystemExit("Monitoring process terminated after repeated failures.")
 
-    local_interface_ips = get_local_interface_ips()
-
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
     non_allowlist_traffic = defaultdict(int)  # Track traffic from IPs not in allowlist
 
@@ -133,16 +131,20 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
     high_count = 0
     low_count = 0
     last_state = None  # Track the last state ("high", "low", or None)
-    previous_interfaces = get_network_interfaces()
-    logging.debug(f"Interfaces: {previous_interfaces}")
 
     try:
         logging.info("Starting network traffic monitoring...")
+
+        previous_interfaces = get_network_interfaces()
+        local_interface_ips = get_local_interface_ips()
+        logging.debug(f"Interfaces: {previous_interfaces}")
+
         while True:
             current_interfaces = get_network_interfaces()
             if current_interfaces != previous_interfaces:
                 logging.warning("Network interfaces changed. Restarting monitoring...")
-                return monitor_traffic(allowlist, interval, high_url, low_url, threshold, consecutive)
+                logging.debug(f"Interfaces: {previous_interfaces}")
+                return monitor_traffic(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive)
 
             scapy.sniff(prn=packet_handler, store=False, timeout=interval)
 
