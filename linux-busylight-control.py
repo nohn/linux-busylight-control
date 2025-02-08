@@ -1,11 +1,11 @@
-import scapy.all as scapy
 import ipaddress
 import time
-import requests
 import argparse
 import logging
-import psutil
 from collections import defaultdict
+import scapy.all as scapy
+import requests
+import psutil
 
 def get_network_interfaces():
     """Retrieve the current list of network interfaces and their IP addresses."""
@@ -112,7 +112,6 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
 
     traffic_stats = defaultdict(lambda: {"sent": 0, "recv": 0})
     non_allowlist_traffic = defaultdict(int)  # Track traffic from IPs not in allowlist
-    start_time = time.time()
 
     # State to track consecutive measurements and event triggers
     high_count = 0
@@ -144,7 +143,7 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
                 low_count = 0
                 if high_count >= consecutive and last_state != "high":
                     if high_url:
-                        requests.get(high_url)
+                        requests.get(high_url, timeout=10)
                         logging.info(f"High data rate detected (> {threshold} Mbit/s) for {consecutive} consecutive measurements. Called high-data-rate URL.")
                     last_state = "high"
             else:
@@ -152,7 +151,7 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
                 high_count = 0
                 if low_count >= consecutive and last_state != "low":
                     if low_url:
-                        requests.get(low_url)
+                        requests.get(low_url, timeout=10)
                         logging.info(f"Data rate dropped (<= {threshold} Mbit/s) for {consecutive} consecutive measurements. Called low-data-rate URL.")
                     last_state = "low"
 
@@ -173,7 +172,6 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
             # Reset stats and timer
             traffic_stats.clear()
             non_allowlist_traffic.clear()
-            start_time = time.time()
 
     except KeyboardInterrupt:
         logging.info("Monitoring stopped by user.")
