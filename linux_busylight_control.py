@@ -191,6 +191,8 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
 
     except KeyboardInterrupt:
         logging.info("Monitoring stopped by user.")
+    except requests.exceptions.ConnectTimeout as rect:
+        logging.error(f"HTTP(S) connection timeout: {rect}")
     except Exception as e:
         logging.error(f"An unexpected error occurred: {e}", exc_info=True)
         restart_monitoring(allowlist, ignorelist, interval, high_url, low_url, threshold, consecutive)
