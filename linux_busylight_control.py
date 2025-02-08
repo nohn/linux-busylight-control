@@ -1,3 +1,6 @@
+"""
+Monitor network traffic to certain IP ranges and trigger URLs if bandwidth goes above / falls below a threshold.
+"""
 import argparse
 import ipaddress
 import logging
