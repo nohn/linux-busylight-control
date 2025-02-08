@@ -10,6 +10,8 @@ from collections import defaultdict
 import psutil
 import requests
 import scapy.all as scapy
+from scapy.layers.inet import IP
+from scapy.layers.inet6 import IPv6
 
 
 def get_network_interfaces():
@@ -55,28 +57,37 @@ def monitor_traffic(allowlist=None, ignorelist=None, interval=10, high_url=None,
             logging.error(f"Invalid IP address: {ip}")
             return False
 
+    def process_ip_packet(ip_layer, packet):
+        """Handles common processing for both IPv4 and IPv6 packets."""
+        src_ip = ip_layer.src
+        dst_ip = ip_layer.dst
+        packet_size = len(packet)
+
+        # Check traffic involving LOCAL interfaces (sent OR received)
+        if src_ip in local_interface_ips:  # Traffic SENT by local interface
+            if is_allowed(dst_ip):  # Destination is allowed
+                traffic_stats[dst_ip]["recv"] += packet_size  # Count as received by destination (even if sent by us)
+            else:
+                non_allowlist_traffic[dst_ip] += packet_size
+        elif dst_ip in local_interface_ips:  # Traffic RECEIVED by local interface
+            if is_allowed(src_ip):  # Source is allowed
+                traffic_stats[src_ip]["sent"] += packet_size  # Count as sent by source (even if received by us)
+            else:
+                non_allowlist_traffic[src_ip] += packet_size
+        else:  # Traffic between non-local interfaces (not relevant for our monitoring)
+            logging.debug(f"Traffic between non-local interfaces received! {src_ip} -> {dst_ip}")
+
     def packet_handler(packet):
         """Handle each packet to aggregate traffic statistics."""
         nonlocal traffic_stats, non_allowlist_traffic, local_interface_ips
-        if scapy.IP in packet:
-            ip_layer = packet[scapy.IP]
-            src_ip = ip_layer.src
-            dst_ip = ip_layer.dst
-            packet_size = len(packet)
-
-            # Check traffic involving LOCAL interfaces (sent OR received)
-            if src_ip in local_interface_ips:  # Traffic SENT by local interface
-                if is_allowed(dst_ip):  # Destination is allowed
-                    traffic_stats[dst_ip]["recv"] += packet_size  # Count as received by destination (even if sent by us)
-                else:
-                    non_allowlist_traffic[dst_ip] += packet_size
-            elif dst_ip in local_interface_ips:  # Traffic RECEIVED by local interface
-                if is_allowed(src_ip):  # Source is allowed
-                    traffic_stats[src_ip]["sent"] += packet_size  # Count as sent by source (even if received by us)
-                else:
-                    non_allowlist_traffic[src_ip] += packet_size
-            else: # Traffic between non-local interfaces (not relevant for our monitoring)
-                logging.debug(f"Traffic between non-local interfaces received! {src_ip} -> {dst_ip}")
+        if IP in packet:
+            ip_layer = packet[IP]
+            process_ip_packet(ip_layer, packet)
+        elif IPv6 in packet:
+            ip_layer = packet[IPv6]
+            process_ip_packet(ip_layer, packet)
+        else:
+            logging.debug(f"Non IP packet received: {packet}")
 
     def get_local_interface_ips():
         """Get the IP addresses of the local network interfaces."""
